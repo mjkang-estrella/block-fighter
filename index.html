@@ -75,8 +75,28 @@
                 text-align: center;
             }
 
+            .side-overlay {
+                position: absolute;
+                top: 45%;
+                transform: translate(-50%, -50%);
+                font-family: monospace;
+                font-size: 28px;
+                color: #172b36;
+                pointer-events: none;
+                text-align: center;
+                width: 80px;
+            }
+
+            #overlayLeft {
+                left: 25%;
+            }
+
+            #overlayRight {
+                left: 75%;
+            }
+
             .hidden {
-                display: none;
+                display: none !important;
             }
 
             #made {
@@ -103,6 +123,8 @@
             </div>
             <canvas id="pongCanvas" width="900" height="900"></canvas>
             <div id="overlay">Press Space to start</div>
+            <div id="overlayLeft" class="side-overlay hidden">3</div>
+            <div id="overlayRight" class="side-overlay hidden">3</div>
             <p id="made">
                 made by
                 <a href="https://koenvangilst.nl/labs/pong-wars"
@@ -134,6 +156,8 @@
         const nightInfo = document.getElementById("nightInfo");
         const timerEl = document.getElementById("timer");
         const overlay = document.getElementById("overlay");
+        const overlayLeft = document.getElementById("overlayLeft");
+        const overlayRight = document.getElementById("overlayRight");
 
         const DAY_COLOR = colorPalette.MysticMint;
         const DAY_BALL_COLOR = colorPalette.NocturnalExpedition;
@@ -523,6 +547,13 @@
             const dtMs = now - lastTimestamp;
             lastTimestamp = now;
 
+            // Ensure main overlay only shows for idle/game-over
+            if (state === GAME_STATE.PLAYING) {
+                overlay.classList.add("hidden");
+            } else {
+                overlay.classList.remove("hidden");
+            }
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawSquares();
 
@@ -562,21 +593,7 @@
 
             updateHUD();
 
-            // Show per-ball countdown overlays when applicable
-            if (state === GAME_STATE.PLAYING) {
-                const msgs = balls
-                    .filter((b) => b.cooldownMs > 0)
-                    .map(
-                        (b) =>
-                            `${b.owner === "DAY" ? "Day" : "Night"} serve in ${Math.ceil(b.cooldownMs / 1000)}`,
-                    );
-                if (msgs.length > 0) {
-                    overlay.classList.remove("hidden");
-                    overlay.textContent = msgs.join(" | ");
-                } else {
-                    overlay.classList.add("hidden");
-                }
-            }
+            updateSideCountdowns();
 
             requestAnimationFrame(gameLoop);
         }
@@ -585,5 +602,33 @@
         overlay.classList.remove("hidden");
         overlay.textContent = "Press Space to start";
         requestAnimationFrame(gameLoop);
+
+        function updateSideCountdowns() {
+            const dayBall = balls[0];
+            const nightBall = balls[1];
+
+            if (state === GAME_STATE.PLAYING) {
+                if (dayBall.cooldownMs > 0) {
+                    overlayLeft.classList.remove("hidden");
+                    overlayLeft.textContent = Math.ceil(
+                        dayBall.cooldownMs / 1000,
+                    );
+                } else {
+                    overlayLeft.classList.add("hidden");
+                }
+
+                if (nightBall.cooldownMs > 0) {
+                    overlayRight.classList.remove("hidden");
+                    overlayRight.textContent = Math.ceil(
+                        nightBall.cooldownMs / 1000,
+                    );
+                } else {
+                    overlayRight.classList.add("hidden");
+                }
+            } else {
+                overlayLeft.classList.add("hidden");
+                overlayRight.classList.add("hidden");
+            }
+        }
     </script>
 </html>
