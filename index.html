@@ -59,7 +59,7 @@
         const NIGHT_BALL_COLOR = colorPalette.MysticMint;
         const SQUARE_SIZE = 25;
         const MIN_SPEED = 4;
-        const MAX_SPEED = 10;
+        const MAX_SPEED = 12;
         const BASE_SPEED = 4; // launch speed
         const PADDLE_WIDTH = 12;
         const PADDLE_HEIGHT = 100;
@@ -298,6 +298,12 @@
                             b.dx = -b.dx;
                         } else {
                             b.dy = -b.dy;
+                            // If vertical flip is tiny near edges, add jitter to escape
+                            if (Math.abs(b.dy) < MIN_SPEED / 2) {
+                                b.dy =
+                                    (b.dy >= 0 ? 1 : -1) *
+                                    (MIN_SPEED / 2 + 0.5);
+                            }
                         }
                         bounced = true;
                     }
@@ -310,6 +316,14 @@
         function checkWallCollision(b) {
             if (b.y - b.radius <= 0 || b.y + b.radius >= canvas.height) {
                 b.dy = -b.dy;
+                // Nudge away from wall to avoid sticking
+                if (b.y - b.radius <= 0) b.y = b.radius + 1;
+                if (b.y + b.radius >= canvas.height)
+                    b.y = canvas.height - b.radius - 1;
+                // Ensure some vertical component after wall bounce
+                if (Math.abs(b.dy) < MIN_SPEED / 2) {
+                    b.dy = (b.dy >= 0 ? 1 : -1) * (MIN_SPEED / 2);
+                }
                 clampBallSpeed(b);
             }
         }
