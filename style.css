@@ -10,6 +10,8 @@ body {
     justify-content: center;
     align-items: center;
     background: linear-gradient(to bottom, #172b36 0%, #d9e8e3 100%);
+    touch-action: none;
+    overscroll-behavior: none;
 }
 
 #container {

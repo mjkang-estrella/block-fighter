@@ -146,6 +146,30 @@
             keysDown.delete(e.key);
         });
 
+        // Touch controls: left half moves Day paddle, right half moves Night paddle
+        function screenToCanvasY(clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const y = ((clientY - rect.top) / rect.height) * canvas.height;
+            return y;
+        }
+
+        function handleTouch(e) {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            for (const touch of e.touches) {
+                const isLeft = touch.clientX < rect.left + rect.width / 2;
+                const target = isLeft ? paddles.day : paddles.night;
+                const y = screenToCanvasY(touch.clientY) - target.height / 2;
+                target.y = Math.max(
+                    0,
+                    Math.min(canvas.height - target.height, y),
+                );
+            }
+        }
+
+        canvas.addEventListener("touchstart", handleTouch, { passive: false });
+        canvas.addEventListener("touchmove", handleTouch, { passive: false });
+
         function handleSpace() {
             if (state === GAME_STATE.IDLE || state === GAME_STATE.GAME_OVER) {
                 startNewGame();
@@ -329,33 +353,67 @@
         }
 
         function checkPaddleCollision(b) {
-            const left = paddles.day;
-            if (
-                b.dx < 0 &&
-                b.x - b.radius <= left.x + left.width &&
-                b.x - b.radius >= left.x &&
-                b.y >= left.y &&
-                b.y <= left.y + left.height
-            ) {
-                b.dx = Math.abs(b.dx);
-                addDeflection(b, left);
-                b.owner = left.owner;
-                clampBallSpeed(b);
-            }
+            checkCircleRectCollision(b, paddles.day, 1);
+            checkCircleRectCollision(b, paddles.night, -1);
+        }
 
-            const right = paddles.night;
-            if (
-                b.dx > 0 &&
-                b.x + b.radius >= right.x &&
-                b.x + b.radius <= right.x + right.width &&
-                b.y >= right.y &&
-                b.y <= right.y + right.height
-            ) {
-                b.dx = -Math.abs(b.dx);
-                addDeflection(b, right);
-                b.owner = right.owner;
-                clampBallSpeed(b);
+        function checkCircleRectCollision(ball, paddle, normalDirection) {
+            // normalDirection: +1 for right-facing normal (left paddle), -1 for left-facing normal (right paddle)
+            const nearestX = clamp(ball.x, paddle.x, paddle.x + paddle.width);
+            const nearestY = clamp(ball.y, paddle.y, paddle.y + paddle.height);
+            const dx = ball.x - nearestX;
+            const dy = ball.y - nearestY;
+            const distSq = dx * dx + dy * dy;
+
+            if (distSq <= ball.radius * ball.radius) {
+                // Determine collision normal
+                let nx = 0;
+                let ny = 0;
+                const overlapX1 = Math.abs(ball.x - (paddle.x - ball.radius));
+                const overlapX2 = Math.abs(
+                    ball.x - (paddle.x + paddle.width + ball.radius),
+                );
+                const overlapY1 = Math.abs(ball.y - (paddle.y - ball.radius));
+                const overlapY2 = Math.abs(
+                    ball.y - (paddle.y + paddle.height + ball.radius),
+                );
+
+                // Prefer horizontal normal when approaching from sides
+                if (
+                    overlapX1 < overlapY1 &&
+                    overlapX1 < overlapY2 &&
+                    normalDirection === 1
+                ) {
+                    nx = 1;
+                } else if (
+                    overlapX2 < overlapY1 &&
+                    overlapX2 < overlapY2 &&
+                    normalDirection === -1
+                ) {
+                    nx = -1;
+                } else {
+                    // Top or bottom
+                    ny = dy > 0 ? 1 : -1;
+                }
+
+                if (nx !== 0) {
+                    ball.dx = Math.abs(ball.dx) * nx;
+                }
+                if (ny !== 0) {
+                    ball.dy = Math.abs(ball.dy) * ny;
+                }
+
+                addDeflection(ball, paddle);
+                ball.owner = paddle.owner;
+                // Push ball slightly out of paddle to prevent sticking
+                ball.x += nx * 2;
+                ball.y += ny * 2;
+                clampBallSpeed(ball);
             }
+        }
+
+        function clamp(value, min, max) {
+            return Math.min(max, Math.max(min, value));
         }
 
         function addDeflection(b, paddle) {
