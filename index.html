@@ -2,11 +2,8 @@
 <html>
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Pong wars | Koen van Gilst</title>
-        <meta
-            name="description"
-            content="The eternal battle between day and night, good and bad. Written in JavaScript with some HTML & CSS in one index.html. Feel free to reuse the code and create your own version."
-        />
+        <title>Block Fighter | MJ Kang</title>
+        <meta name="description" content="PVP pong" />
         <link rel="canonical" href="https://pong-wars.koenvangilst.nl/" />
         <link rel="author" href="https://koenvangilst.nl" />
         <meta name="theme-color" content="#172B36" />
@@ -62,7 +59,7 @@
         const NIGHT_BALL_COLOR = colorPalette.MysticMint;
         const SQUARE_SIZE = 25;
         const MIN_SPEED = 4;
-        const MAX_SPEED = 6;
+        const MAX_SPEED = 10;
         const BASE_SPEED = 4; // launch speed
         const PADDLE_WIDTH = 12;
         const PADDLE_HEIGHT = 100;
@@ -71,7 +68,6 @@
         const COUNTDOWN_MS = 3000;
         const GAME_TIME_MS = 60_000;
         const WIN_PERCENT = 0.6;
-        const MAX_LIVES = 3;
 
         const numSquaresX = canvas.width / SQUARE_SIZE;
         const numSquaresY = canvas.height / SQUARE_SIZE;
@@ -123,7 +119,6 @@
                 width: PADDLE_WIDTH,
                 height: PADDLE_HEIGHT,
                 color: DAY_BALL_COLOR,
-                lives: MAX_LIVES,
                 owner: "DAY",
             },
             night: {
@@ -132,7 +127,6 @@
                 width: PADDLE_WIDTH,
                 height: PADDLE_HEIGHT,
                 color: NIGHT_BALL_COLOR,
-                lives: MAX_LIVES,
                 owner: "NIGHT",
             },
         };
@@ -160,8 +154,6 @@
 
         function startNewGame() {
             resetGrid();
-            paddles.day.lives = MAX_LIVES;
-            paddles.night.lives = MAX_LIVES;
             paddles.day.y = canvas.height / 2 - PADDLE_HEIGHT / 2;
             paddles.night.y = canvas.height / 2 - PADDLE_HEIGHT / 2;
             balls.forEach((b, idx) => {
@@ -229,8 +221,9 @@
         function drawBall(b) {
             ctx.beginPath();
             ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2, false);
-            ctx.fillStyle =
+            const baseColor =
                 b.owner === "DAY" ? DAY_BALL_COLOR : NIGHT_BALL_COLOR;
+            ctx.fillStyle = getPoweredColor(baseColor, b);
             ctx.fill();
             ctx.closePath();
         }
@@ -266,6 +259,7 @@
             const ownerColor = b.owner === "DAY" ? DAY_COLOR : NIGHT_COLOR;
             const opponentColor = b.owner === "DAY" ? NIGHT_COLOR : DAY_COLOR;
             let bounced = false;
+            const power = getBallPower(b);
 
             for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
                 const checkX = b.x + Math.cos(angle) * b.radius;
@@ -277,6 +271,26 @@
                 if (i >= 0 && i < numSquaresX && j >= 0 && j < numSquaresY) {
                     if (squares[i][j] === opponentColor) {
                         squares[i][j] = ownerColor;
+                        // Break extra squares in travel direction based on power
+                        const stepI = Math.sign(b.dx);
+                        const stepJ = Math.sign(b.dy);
+                        let ii = i;
+                        let jj = j;
+                        for (let p = 1; p < power; p++) {
+                            ii += stepI;
+                            jj += stepJ;
+                            if (
+                                ii < 0 ||
+                                ii >= numSquaresX ||
+                                jj < 0 ||
+                                jj >= numSquaresY
+                            ) {
+                                break;
+                            }
+                            if (squares[ii][jj] === opponentColor) {
+                                squares[ii][jj] = ownerColor;
+                            }
+                        }
                         if (
                             Math.abs(Math.cos(angle)) >
                             Math.abs(Math.sin(angle))
@@ -348,6 +362,48 @@
             }
         }
 
+        function getBallPower(b) {
+            const speed = Math.hypot(b.dx, b.dy);
+            return Math.max(1, Math.floor(speed - BASE_SPEED) + 1);
+        }
+
+        function hexToRgb(hex) {
+            const h = hex.replace("#", "");
+            return {
+                r: parseInt(h.slice(0, 2), 16),
+                g: parseInt(h.slice(2, 4), 16),
+                b: parseInt(h.slice(4, 6), 16),
+            };
+        }
+
+        function rgbToHex({ r, g, b }) {
+            return (
+                "#" +
+                [r, g, b]
+                    .map((v) => {
+                        const h = v.toString(16);
+                        return h.length === 1 ? "0" + h : h;
+                    })
+                    .join("")
+            );
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function getPoweredColor(baseHex, b) {
+            const base = hexToRgb(baseHex);
+            const red = { r: 255, g: 80, b: 80 };
+            const power = getBallPower(b);
+            const t = Math.min(1, (power - 1) / 4); // saturate by power 5
+            return rgbToHex({
+                r: Math.round(lerp(base.r, red.r, t)),
+                g: Math.round(lerp(base.g, red.g, t)),
+                b: Math.round(lerp(base.b, red.b, t)),
+            });
+        }
+
         function moveBall(b, dtMs) {
             // progressively ramp speed from MIN_SPEED to MAX_SPEED over 60s of survival
             b.timeSinceLaunchMs += dtMs;
@@ -396,12 +452,6 @@
 
         function handleMiss(player, ballRef) {
             if (state !== GAME_STATE.PLAYING) return;
-            const loser = paddles[player];
-            loser.lives -= 1;
-            if (loser.lives <= 0) {
-                endGame(player === "day" ? "night" : "day");
-                return;
-            }
             const startX =
                 player === "day" ? canvas.width * 0.25 : canvas.width * 0.75;
             const direction = player === "day" ? 1 : -1;
@@ -435,8 +485,8 @@
             const dayPercent = Math.round((dayScore / totalSquares) * 100);
             const nightPercent = Math.round((nightScore / totalSquares) * 100);
 
-            dayInfo.textContent = `Day ${dayPercent}% | Lives ${paddles.day.lives}/${MAX_LIVES}`;
-            nightInfo.textContent = `Night ${nightPercent}% | Lives ${paddles.night.lives}/${MAX_LIVES}`;
+            dayInfo.textContent = `Day ${dayPercent}%`;
+            nightInfo.textContent = `Night ${nightPercent}%`;
 
             const minutes = Math.floor(remainingTimeMs / 60000);
             const seconds = Math.floor((remainingTimeMs % 60000) / 1000)
