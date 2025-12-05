@@ -1,0 +1,589 @@
+<!doctype html>
+<html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Pong wars | Koen van Gilst</title>
+        <meta
+            name="description"
+            content="The eternal battle between day and night, good and bad. Written in JavaScript with some HTML & CSS in one index.html. Feel free to reuse the code and create your own version."
+        />
+        <link rel="canonical" href="https://pong-wars.koenvangilst.nl/" />
+        <link rel="author" href="https://koenvangilst.nl" />
+        <meta name="theme-color" content="#172B36" />
+        <meta name="creator" content="Koen van Gilst" />
+        <script src="script.js"></script>
+        <style>
+            html {
+                height: 100%;
+            }
+
+            body {
+                height: 100%;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                background: linear-gradient(
+                    to bottom,
+                    #172b36 0%,
+                    #d9e8e3 100%
+                );
+            }
+
+            #container {
+                display: flex;
+                align-items: center;
+                flex-direction: column;
+                width: min(70vh, 80%);
+                max-width: 900px;
+                height: 100%;
+                position: relative;
+                gap: 10px;
+            }
+
+            canvas {
+                display: block;
+                border-radius: 4px;
+                overflow: hidden;
+                width: 100%;
+                margin-top: auto;
+                box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+            }
+
+            #hud {
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-family: monospace;
+                font-size: 16px;
+                color: #172b36;
+                padding: 0 4px;
+            }
+
+            #overlay {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-family: monospace;
+                font-size: 24px;
+                color: #172b36;
+                pointer-events: none;
+                text-align: center;
+            }
+
+            .hidden {
+                display: none;
+            }
+
+            #made {
+                text-align: center;
+                line-height: 1.5;
+                font-family: monospace;
+                margin-top: auto;
+                margin-bottom: 20px;
+                font-size: 10px;
+            }
+
+            #made a {
+                color: #172b36;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div id="container">
+            <div id="hud">
+                <span id="dayInfo"></span>
+                <span id="timer"></span>
+                <span id="nightInfo"></span>
+            </div>
+            <canvas id="pongCanvas" width="900" height="900"></canvas>
+            <div id="overlay">Press Space to start</div>
+            <p id="made">
+                made by
+                <a href="https://koenvangilst.nl/labs/pong-wars"
+                    >Koen van Gilst</a
+                >
+                | source on
+                <a href="https://github.com/vnglst/pong-wars">github</a>
+            </p>
+        </div>
+    </body>
+
+    <script>
+        // Source palette: https://twitter.com/AlexCristache/status/1738610343499157872
+        // Idea for Pong wars: https://twitter.com/nicolasdnl/status/1749715070928433161
+
+        const colorPalette = {
+            ArcticPowder: "#F1F6F4",
+            MysticMint: "#D9E8E3",
+            Forsythia: "#FFC801",
+            DeepSaffron: "#FF9932",
+            NocturnalExpedition: "#114C5A",
+            OceanicNoir: "#172B36",
+        };
+
+        const canvas = document.getElementById("pongCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const dayInfo = document.getElementById("dayInfo");
+        const nightInfo = document.getElementById("nightInfo");
+        const timerEl = document.getElementById("timer");
+        const overlay = document.getElementById("overlay");
+
+        const DAY_COLOR = colorPalette.MysticMint;
+        const DAY_BALL_COLOR = colorPalette.NocturnalExpedition;
+        const NIGHT_COLOR = colorPalette.NocturnalExpedition;
+        const NIGHT_BALL_COLOR = colorPalette.MysticMint;
+        const SQUARE_SIZE = 25;
+        const MIN_SPEED = 4;
+        const MAX_SPEED = 8;
+        const PADDLE_WIDTH = 12;
+        const PADDLE_HEIGHT = 100;
+        const PADDLE_SPEED = 8;
+        const FRAME_RATE = 100;
+        const COUNTDOWN_MS = 3000;
+        const GAME_TIME_MS = 120_000;
+        const WIN_PERCENT = 0.6;
+        const MAX_LIVES = 3;
+
+        const numSquaresX = canvas.width / SQUARE_SIZE;
+        const numSquaresY = canvas.height / SQUARE_SIZE;
+        const totalSquares = numSquaresX * numSquaresY;
+
+        let dayScore = 0;
+        let nightScore = 0;
+
+        const squares = [];
+        resetGrid();
+
+        const GAME_STATE = {
+            IDLE: "idle",
+            PLAYING: "playing",
+            GAME_OVER: "game_over",
+        };
+
+        let state = GAME_STATE.IDLE;
+        let remainingTimeMs = GAME_TIME_MS;
+        let lastTimestamp = performance.now();
+
+        const balls = [
+            {
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                dx: 0,
+                dy: 0,
+                owner: "DAY",
+                radius: SQUARE_SIZE / 2,
+                cooldownMs: 0,
+            },
+            {
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                dx: 0,
+                dy: 0,
+                owner: "NIGHT",
+                radius: SQUARE_SIZE / 2,
+                cooldownMs: 0,
+            },
+        ];
+
+        const paddles = {
+            day: {
+                x: 10,
+                y: canvas.height / 2 - PADDLE_HEIGHT / 2,
+                width: PADDLE_WIDTH,
+                height: PADDLE_HEIGHT,
+                color: DAY_BALL_COLOR,
+                lives: MAX_LIVES,
+                owner: "DAY",
+            },
+            night: {
+                x: canvas.width - PADDLE_WIDTH - 10,
+                y: canvas.height / 2 - PADDLE_HEIGHT / 2,
+                width: PADDLE_WIDTH,
+                height: PADDLE_HEIGHT,
+                color: NIGHT_BALL_COLOR,
+                lives: MAX_LIVES,
+                owner: "NIGHT",
+            },
+        };
+
+        const keysDown = new Set();
+
+        document.addEventListener("keydown", (e) => {
+            if (["w", "s", "ArrowUp", "ArrowDown"].includes(e.key)) {
+                keysDown.add(e.key);
+            }
+            if (e.key === " ") {
+                handleSpace();
+            }
+        });
+
+        document.addEventListener("keyup", (e) => {
+            keysDown.delete(e.key);
+        });
+
+        function handleSpace() {
+            if (state === GAME_STATE.IDLE || state === GAME_STATE.GAME_OVER) {
+                startNewGame();
+            }
+        }
+
+        function startNewGame() {
+            resetGrid();
+            paddles.day.lives = MAX_LIVES;
+            paddles.night.lives = MAX_LIVES;
+            paddles.day.y = canvas.height / 2 - PADDLE_HEIGHT / 2;
+            paddles.night.y = canvas.height / 2 - PADDLE_HEIGHT / 2;
+            balls.forEach((b, idx) => {
+                b.x = canvas.width / 2;
+                b.y = canvas.height / 2;
+                b.dx = 0;
+                b.dy = 0;
+                b.owner = idx === 0 ? "DAY" : "NIGHT";
+                b.cooldownMs = 0;
+            });
+            remainingTimeMs = GAME_TIME_MS;
+            state = GAME_STATE.PLAYING;
+            resetAllBalls();
+            overlay.classList.add("hidden");
+        }
+
+        function resetGrid() {
+            for (let i = 0; i < numSquaresX; i++) {
+                squares[i] = [];
+                for (let j = 0; j < numSquaresY; j++) {
+                    squares[i][j] =
+                        i < numSquaresX / 2 ? DAY_COLOR : NIGHT_COLOR;
+                }
+            }
+        }
+
+        function launchBall(targetBall, direction) {
+            const baseSpeed = 6; // 80% of previous
+            targetBall.dx = baseSpeed * direction;
+            targetBall.dy = (Math.random() * 2 - 1) * baseSpeed * 0.4;
+            targetBall.cooldownMs = 0;
+        }
+
+        function resetBall(
+            targetBall,
+            direction,
+            owner,
+            startX,
+            paused = false,
+        ) {
+            targetBall.x = startX;
+            targetBall.y = canvas.height / 2;
+            targetBall.owner = owner;
+            if (paused) {
+                targetBall.dx = 0;
+                targetBall.dy = 0;
+                targetBall.cooldownMs = COUNTDOWN_MS;
+            } else {
+                launchBall(targetBall, direction);
+            }
+        }
+
+        function resetAllBalls() {
+            const dayStartX = canvas.width * 0.25;
+            const nightStartX = canvas.width * 0.75;
+            resetBall(balls[0], 1, "DAY", dayStartX);
+            resetBall(balls[1], -1, "NIGHT", nightStartX);
+        }
+
+        function drawBall(b) {
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2, false);
+            ctx.fillStyle =
+                b.owner === "DAY" ? DAY_BALL_COLOR : NIGHT_BALL_COLOR;
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function drawPaddles() {
+            Object.values(paddles).forEach((paddle) => {
+                ctx.fillStyle = paddle.color;
+                ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+            });
+        }
+
+        function drawSquares() {
+            dayScore = 0;
+            nightScore = 0;
+
+            for (let i = 0; i < numSquaresX; i++) {
+                for (let j = 0; j < numSquaresY; j++) {
+                    ctx.fillStyle = squares[i][j];
+                    ctx.fillRect(
+                        i * SQUARE_SIZE,
+                        j * SQUARE_SIZE,
+                        SQUARE_SIZE,
+                        SQUARE_SIZE,
+                    );
+
+                    if (squares[i][j] === DAY_COLOR) dayScore++;
+                    if (squares[i][j] === NIGHT_COLOR) nightScore++;
+                }
+            }
+        }
+
+        function checkSquareCollisionAndPaint(b) {
+            const ownerColor = b.owner === "DAY" ? DAY_COLOR : NIGHT_COLOR;
+            const opponentColor = b.owner === "DAY" ? NIGHT_COLOR : DAY_COLOR;
+            let bounced = false;
+
+            for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+                const checkX = b.x + Math.cos(angle) * b.radius;
+                const checkY = b.y + Math.sin(angle) * b.radius;
+
+                const i = Math.floor(checkX / SQUARE_SIZE);
+                const j = Math.floor(checkY / SQUARE_SIZE);
+
+                if (i >= 0 && i < numSquaresX && j >= 0 && j < numSquaresY) {
+                    if (squares[i][j] === opponentColor) {
+                        squares[i][j] = ownerColor;
+                        if (
+                            Math.abs(Math.cos(angle)) >
+                            Math.abs(Math.sin(angle))
+                        ) {
+                            b.dx = -b.dx;
+                        } else {
+                            b.dy = -b.dy;
+                        }
+                        bounced = true;
+                    }
+                }
+            }
+
+            if (bounced) clampBallSpeed(b);
+        }
+
+        function checkWallCollision(b) {
+            if (b.y - b.radius <= 0 || b.y + b.radius >= canvas.height) {
+                b.dy = -b.dy;
+                clampBallSpeed(b);
+            }
+        }
+
+        function checkPaddleCollision(b) {
+            const left = paddles.day;
+            if (
+                b.dx < 0 &&
+                b.x - b.radius <= left.x + left.width &&
+                b.x - b.radius >= left.x &&
+                b.y >= left.y &&
+                b.y <= left.y + left.height
+            ) {
+                b.dx = Math.abs(b.dx);
+                addDeflection(b, left);
+                b.owner = left.owner;
+                clampBallSpeed(b);
+            }
+
+            const right = paddles.night;
+            if (
+                b.dx > 0 &&
+                b.x + b.radius >= right.x &&
+                b.x + b.radius <= right.x + right.width &&
+                b.y >= right.y &&
+                b.y <= right.y + right.height
+            ) {
+                b.dx = -Math.abs(b.dx);
+                addDeflection(b, right);
+                b.owner = right.owner;
+                clampBallSpeed(b);
+            }
+        }
+
+        function addDeflection(b, paddle) {
+            const paddleCenter = paddle.y + paddle.height / 2;
+            const distanceFromCenter = b.y - paddleCenter;
+            b.dy += distanceFromCenter * 0.08;
+        }
+
+        function clampBallSpeed(b) {
+            b.dx = Math.min(Math.max(b.dx, -MAX_SPEED), MAX_SPEED);
+            b.dy = Math.min(Math.max(b.dy, -MAX_SPEED), MAX_SPEED);
+
+            if (Math.abs(b.dx) < MIN_SPEED) {
+                b.dx = b.dx > 0 ? MIN_SPEED : -MIN_SPEED;
+            }
+            if (Math.abs(b.dy) < MIN_SPEED) {
+                b.dy = b.dy > 0 ? MIN_SPEED : -MIN_SPEED;
+            }
+        }
+
+        function moveBall(b) {
+            b.x += b.dx;
+            b.y += b.dy;
+            b.dx *= 0.999;
+            b.dy *= 0.999;
+        }
+
+        function movePaddles() {
+            if (keysDown.has("w")) paddles.day.y -= PADDLE_SPEED;
+            if (keysDown.has("s")) paddles.day.y += PADDLE_SPEED;
+            if (keysDown.has("ArrowUp")) paddles.night.y -= PADDLE_SPEED;
+            if (keysDown.has("ArrowDown")) paddles.night.y += PADDLE_SPEED;
+
+            paddles.day.y = Math.max(
+                0,
+                Math.min(canvas.height - paddles.day.height, paddles.day.y),
+            );
+            paddles.night.y = Math.max(
+                0,
+                Math.min(canvas.height - paddles.night.height, paddles.night.y),
+            );
+        }
+
+        function checkMiss(b) {
+            if (state !== GAME_STATE.PLAYING || b.cooldownMs > 0) return;
+            if (b.x < -b.radius) {
+                handleMiss("day", b);
+            } else if (b.x > canvas.width + b.radius) {
+                handleMiss("night", b);
+            }
+        }
+
+        function handleMiss(player, ballRef) {
+            if (state !== GAME_STATE.PLAYING) return;
+            const loser = paddles[player];
+            loser.lives -= 1;
+            if (loser.lives <= 0) {
+                endGame(player === "day" ? "night" : "day");
+                return;
+            }
+            const startX =
+                player === "day" ? canvas.width * 0.25 : canvas.width * 0.75;
+            const direction = player === "day" ? 1 : -1;
+            resetBall(ballRef, direction, ballRef.owner, startX, true);
+        }
+
+        function endGame(winnerKey) {
+            state = GAME_STATE.GAME_OVER;
+            overlay.classList.remove("hidden");
+            overlay.textContent = `${
+                winnerKey === "day" ? "Day" : "Night"
+            } wins! Press Space to restart`;
+        }
+
+        function updateTimer(dtMs) {
+            if (state === GAME_STATE.PLAYING) {
+                remainingTimeMs = Math.max(0, remainingTimeMs - dtMs);
+                if (remainingTimeMs === 0) {
+                    const winnerKey =
+                        dayScore === nightScore
+                            ? "day"
+                            : dayScore > nightScore
+                              ? "day"
+                              : "night";
+                    endGame(winnerKey);
+                }
+            }
+        }
+
+        function updateHUD() {
+            const dayPercent = Math.round((dayScore / totalSquares) * 100);
+            const nightPercent = Math.round((nightScore / totalSquares) * 100);
+
+            const dayHearts =
+                "*".repeat(paddles.day.lives) +
+                ".".repeat(MAX_LIVES - paddles.day.lives);
+            const nightHearts =
+                "*".repeat(paddles.night.lives) +
+                ".".repeat(MAX_LIVES - paddles.night.lives);
+
+            dayInfo.textContent = `Day ${dayPercent}% [${dayHearts}]`;
+            nightInfo.textContent = `Night ${nightPercent}% [${nightHearts}]`;
+
+            const minutes = Math.floor(remainingTimeMs / 60000);
+            const seconds = Math.floor((remainingTimeMs % 60000) / 1000)
+                .toString()
+                .padStart(2, "0");
+            timerEl.textContent = `${minutes}:${seconds}`;
+        }
+
+        function checkTerritoryWin() {
+            if (state === GAME_STATE.GAME_OVER) return;
+            if (dayScore / totalSquares >= WIN_PERCENT) {
+                endGame("day");
+            } else if (nightScore / totalSquares >= WIN_PERCENT) {
+                endGame("night");
+            }
+        }
+
+        function gameLoop() {
+            const now = performance.now();
+            const dtMs = now - lastTimestamp;
+            lastTimestamp = now;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawSquares();
+
+            if (
+                state === GAME_STATE.PLAYING ||
+                state === GAME_STATE.COUNTDOWN
+            ) {
+                movePaddles();
+            }
+
+            if (state === GAME_STATE.PLAYING) {
+                balls.forEach((b) => {
+                    if (b.cooldownMs > 0) {
+                        b.cooldownMs -= dtMs;
+                        if (b.cooldownMs <= 0) {
+                            const dir = b.owner === "DAY" ? 1 : -1;
+                            launchBall(b, dir);
+                            b.cooldownMs = 0;
+                        }
+                    } else {
+                        moveBall(b);
+                        checkWallCollision(b);
+                        checkPaddleCollision(b);
+                        checkSquareCollisionAndPaint(b);
+                        checkMiss(b);
+                    }
+                });
+            }
+
+            updateTimer(dtMs);
+            checkTerritoryWin();
+
+            drawPaddles();
+            if (state !== GAME_STATE.IDLE) {
+                balls.forEach((b) => drawBall(b));
+            }
+
+            updateHUD();
+
+            // Show per-ball countdown overlays when applicable
+            if (state === GAME_STATE.PLAYING) {
+                const msgs = balls
+                    .filter((b) => b.cooldownMs > 0)
+                    .map(
+                        (b) =>
+                            `${b.owner === "DAY" ? "Day" : "Night"} serve in ${Math.ceil(b.cooldownMs / 1000)}`,
+                    );
+                if (msgs.length > 0) {
+                    overlay.classList.remove("hidden");
+                    overlay.textContent = msgs.join(" | ");
+                } else {
+                    overlay.classList.add("hidden");
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Initialize idle screen
+        overlay.classList.remove("hidden");
+        overlay.textContent = "Press Space to start";
+        requestAnimationFrame(gameLoop);
+    </script>
+</html>
