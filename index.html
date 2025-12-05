@@ -146,10 +146,15 @@
             keysDown.delete(e.key);
         });
 
-        overlay.addEventListener("click", () => {
+        function handleGlobalPointerStart() {
             if (state === GAME_STATE.IDLE || state === GAME_STATE.GAME_OVER) {
                 handleSpace();
             }
+        }
+
+        // Start on any tap/click
+        document.addEventListener("pointerdown", handleGlobalPointerStart, {
+            passive: false,
         });
 
         // Touch controls: left half moves Day paddle, right half moves Night paddle
